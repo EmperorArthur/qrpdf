@@ -1,0 +1,14 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+pytest = "*"
+
+[packages]
+fpdf2 = "*"
+qrcode = "*"
+
+[requires]
+python_version = "3.7"
