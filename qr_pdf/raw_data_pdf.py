@@ -52,12 +52,13 @@ class RawDataPDF:
         """
         Same as the normal `generate_grid_start_points`, but uses self.pdf for everything but cell_size
         :param cell_size: The cell size **in the same unit as the PDF is in**
-        :return:
+        :return: An iterator of points in the form (x, y)
         """
         return generate_grid_start_points(cell_size=cell_size,
-                                          margins=(self.pdf.l_margin, self.pdf.t_margin,
-                                                   self.pdf.r_margin, self.pdf.b_margin),
-                                          page_size=(self.pdf.w, self.pdf.h))
+                                          effective_page_width=self.pdf.epw,
+                                          effective_page_height=self.pdf.eph,
+                                          offset_x=self.pdf.l_margin,
+                                          offset_y=self.pdf.t_margin)
 
     def generate_qr_page_elements(self, qr_template, text_template=None) -> Iterator[List[dict]]:
         """

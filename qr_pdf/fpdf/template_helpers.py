@@ -54,29 +54,38 @@ class frange(Sequence):
 
 
 def generate_grid_start_points(cell_size: Union[float, Tuple[float, float]],
-                               margins: Union[float, Tuple[float, float, float, float]],
-                               page_size: Tuple[float, float]
+                               effective_page_width: float,
+                               effective_page_height: float,
+                               offset_x: float = 0,
+                               offset_y: float = 0,
                                ) -> Iterator[Tuple[float, float]]:
     """
     Generate fpdf cell start points for a grid.  Upper left point of each cell.
 
-    Use this with a size less than or equal to spacing to create cells.
+    The output points are calculated as `(x + offset_x, y + offset_y)` where all points satisfy the conditions:
+
+    * x + offset_x + cell_width <= effective_page_width
+    * y + offset_y + cell_height <= effective_page_width
+
+    This does not take any column/row spacing parameter.
+    Add any such spacing the cell_size, and merely do not include it when computing either
+    the other point(s) needed for the grid, or the real cell height and width.
 
     :param cell_size: The size of each row/column.  Either a single number or `(width, height)`
-    :param margins: The page margins. Either a single number or `(left, top, right, bottom)`
-    :param page_size: The size of the page to generate points for.
-    :return Tuples in the **same unit** as given.
+    :param effective_page_width: The width of the page to generate points for, minus the left and right margins.
+    :param effective_page_height: The height of the page to generate points for, minus the top and bottom margins.
+    :param offset_x: The X position to start at (left margin).  Added to every point.
+    :param offset_y: The Y position to start at (top margin).  Added to every point.
+    :return An iterator of tuples in the format (x_position, y_position) in the **same unit** as given.
     """
 
     # Convert everything to a tuples
     if not isinstance(cell_size, (tuple, list)):
         cell_size = (cell_size, cell_size)
-    if not isinstance(margins, (tuple, list)):
-        margins = (margins, margins, margins, margins)
 
     # Generate the points (special handling is done so cells that exactly fit will work)
-    x_starts = tuple(frange(margins[0], page_size[0] - margins[2] - cell_size[0], cell_size[0], True))
-    y_starts = tuple(frange(margins[1], page_size[1] - margins[3] - cell_size[1], cell_size[1], True))
+    x_starts = frange(offset_x, effective_page_width - cell_size[0] + offset_x, cell_size[0], True)
+    y_starts = frange(offset_y, effective_page_height - cell_size[1] + offset_y, cell_size[1], True)
 
     for y in y_starts:
         for x in x_starts:
@@ -106,12 +115,17 @@ def generate_element_grid(size: Union[float, Tuple[float, float]],
     # Make sure size is in the correct format
     if not isinstance(size, (tuple, list)):
         size = (size, size)
+    if not isinstance(margins, (tuple, list)):
+        margins = (margins, margins, margins, margins)
+
     width, height = size[0], size[1]
     page_size = convert_unit(get_page_format(page_format, k=1), 1, unit)
 
     points = generate_grid_start_points(cell_size=(width + col_spacing, height + row_spacing),
-                                        margins=margins,
-                                        page_size=page_size)
+                                        effective_page_width=page_size[0] - margins[0] - margins[2],
+                                        effective_page_height = page_size[1] - margins[1] - margins[3],
+                                        offset_x=margins[0],
+                                        offset_y=margins[1])
     # Convert to mm here
     width, height = width * unit_translation_factor, height * unit_translation_factor
     for i, (x, y) in enumerate(points):
