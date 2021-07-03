@@ -44,6 +44,7 @@ __license__ = "MIT"
 import re
 import struct
 import mmap
+from collections.abc import Sized, Hashable
 from hashlib import md5
 from io import BufferedIOBase
 from logging import getLogger
@@ -119,7 +120,7 @@ class PacketHeader(NamedTuple):
         return PACKET_LOOKUP.get(self.signature, "Unknown")
 
 
-class Packet:
+class Packet(Sized, Hashable):
     """
     A Par2 Packet
     WARNING: Watch out for memory limitations with large data / many packets
@@ -143,7 +144,7 @@ class Packet:
         self._header = self._header._replace(hash=self._generate_hash())
 
     def __repr__(self):
-        return "Packet: {} - {} bytes".format(self.header.type, self.size)
+        return "Packet: {} - {} bytes".format(self.header.type, self.__len__())
 
     @classmethod
     def from_bytes(cls, data: Union[bytes, memoryview]) -> "Packet":
@@ -174,11 +175,6 @@ class Packet:
     def header(self) -> PacketHeader:
         return self._header
 
-    @property
-    def size(self) -> int:
-        """ The size of the entire packet (including header) """
-        return self.header.length
-
     def is_valid(self) -> bool:
         """
         If the packet is (seems) valid
@@ -188,6 +184,10 @@ class Packet:
         return self.header.is_valid() and \
                (len(self._data_after_header) + PACKET_HEADER_SIZE) == self.header.length and \
                (self._generate_hash() == self.header.hash)
+
+    def __len__(self):
+        """ The size of the entire packet (including header) """
+        return self.header.length
 
     def __eq__(self, other: "Packet"):
         """
@@ -301,10 +301,10 @@ def _get_optimized_main(data: Union[bytearray, bytes, memoryview]) -> Tuple[byte
 
     out = main_packets[0].as_bytes()
     creator_out = None
-    bin_bytes_remaining = _get_unused_block_size(main_packets[0].size)
-    if bin_bytes_remaining >= creator_packets[0].size:
+    bin_bytes_remaining = _get_unused_block_size(len(main_packets[0]))
+    if bin_bytes_remaining >= len(creator_packets[0]):
         out += creator_packets[0].as_bytes()
-        bin_bytes_remaining -= creator_packets[0].size
+        bin_bytes_remaining -= len(creator_packets[0])
     else:
         creator_out = creator_packets[0]
         logger.info("Not Enough Space to pack Creator packet with Main packet")
@@ -339,11 +339,11 @@ def _get_optimized_file_data(data: Union[bytearray, bytes, memoryview]) -> bytes
     #   * Iterate through all the remaining packets, moving them to the bin if possible
     #   * Close the bin
     # The outer iteration can pack multiple bins if a packet is too large for a single one.
-    file_packets.sort(key=lambda p: p.size, reverse=True)
+    file_packets.sort(key=len, reverse=True)
     while len(file_packets):
         packet = file_packets.pop(0)  # Handle at least one packet per iteration
         out += packet.as_bytes()
-        bin_bytes_remaining = _get_unused_block_size(packet.size)
+        bin_bytes_remaining = _get_unused_block_size(len(packet))
         if bin_bytes_remaining <= PACKET_HEADER_SIZE:
             # Optimization. Nothing will fit, so close the bin
             out += b'\0' * bin_bytes_remaining
@@ -351,9 +351,9 @@ def _get_optimized_file_data(data: Union[bytearray, bytes, memoryview]) -> bytes
         to_drop = []  # Implementation detail, python lists should never be modified while being iterated through.
         for i, packet in enumerate(file_packets):
             # Only have to do this once to fill the bin
-            if packet.size <= bin_bytes_remaining:
+            if len(packet) <= bin_bytes_remaining:
                 out += packet.as_bytes()
-                bin_bytes_remaining -= packet.size
+                bin_bytes_remaining -= len(packet)
                 to_drop.append(i)
         for i in sorted(to_drop, reverse=True):
             del file_packets[i]  # drop from highest index down
@@ -411,7 +411,8 @@ def optimize_for_tar(in_file: Union[str, Path, bytearray, bytes], out: Union[str
     for packet in get_packets(in_file, "RecoveryBlock"):
         recovery_count += 1
         recovery_written += out.write(packet.as_bytes())
-        bin_bytes_remaining = _get_unused_block_size(packet.size)
+        # Never try to stuff recovery packets, and instead pad the current block
+        bin_bytes_remaining = _get_unused_block_size(len(packet))
         recovery_written += out.write(b'\0' * bin_bytes_remaining)
     written += recovery_written
     logger.info("Wrote {} Recovery packets in {} blocks".format(recovery_count, int(recovery_written / TAR_BLOCK_SIZE)))
