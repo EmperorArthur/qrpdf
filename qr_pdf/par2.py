@@ -95,7 +95,10 @@ class PacketHeader(NamedTuple):
     @classmethod
     def from_bytes(cls, data: bytes) -> "PacketHeader":
         """ Create from raw binary data """
-        return cls._make(struct.unpack_from(cls._format, data))
+        out = cls._make(struct.unpack_from(cls._format, data))
+        if not out.is_valid():
+            raise ValueError("Not a valid par2 packet header")
+        return out
 
     @classmethod
     def size_bytes(cls) -> int:
@@ -111,7 +114,7 @@ class PacketHeader(NamedTuple):
         return self.magic == self._magic_expected and \
                self.signature in PACKET_LOOKUP
 
-    def as_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         return struct.pack(self._format, *self)
 
     @property
@@ -126,25 +129,21 @@ class Packet(Sized, Hashable):
     WARNING: Watch out for memory limitations with large data / many packets
     """
 
-    def __init__(self, packet_type: str = "Unknown", set_id: bytes = b'', data: bytes = b'', **kwargs):
+    def __init__(self, packet_type: str = "Unknown", set_id: bytes = b'', data: bytes = b''):
         """
         Create a new packet
-
-        Accepts "header: PacketHeader" as a kwarg to bypass normal initialization
         """
-        self._data_after_header: bytes = data
-        if "header" in kwargs:
-            self._header = kwargs["header"]
-            return
-
         header = PacketHeader(magic=PacketHeader._magic_expected,
                               length=PACKET_HEADER_SIZE + len(data), hash=b'', set_id=set_id,
                               signature=PACKET_TYPES.get(packet_type, b''))
         self._header: PacketHeader = header  # Make sure someone knows what they're doing when writing to this
-        self._header = self._header._replace(hash=self._generate_hash())
+        self._data_after_header: bytes = data
+        if packet_type != "Unknown":
+            # Don't bother doing a hash when the data is likely to be overwritten immediately
+            self._header = self._header._replace(hash=self._generate_hash())
 
     def __repr__(self):
-        return "Packet: {} - {} bytes".format(self.header.type, self.__len__())
+        return "<Par2 Packet: {} ({} bytes)>".format(self.header.type, self.__len__())
 
     @classmethod
     def from_bytes(cls, data: Union[bytes, memoryview]) -> "Packet":
@@ -156,8 +155,11 @@ class Packet(Sized, Hashable):
 
         Internally handles all the variable sizing, so for offsets you can just do `...(data=buffer[offset:])`
         """
-        header = PacketHeader.from_bytes(data)
-        packet = cls(header=header, data=data[PACKET_HEADER_SIZE:header.length])
+        packet = cls()
+        packet._header = PacketHeader.from_bytes(data)
+        packet._data_after_header = data[PACKET_HEADER_SIZE:packet.header.length]
+        if not packet.is_valid():
+            raise ValueError("Not a valid par2 packet")
         return packet
 
     def _generate_hash(self) -> bytes:
@@ -169,7 +171,7 @@ class Packet(Sized, Hashable):
         Get the packet as raw data
         WARNING: Even if the packet was built from a memoryview, this still returns bytes.
         """
-        return self.header.as_bytes() + self._data_after_header
+        return bytes(self.header) + self._data_after_header
 
     @property
     def header(self) -> PacketHeader:
@@ -204,26 +206,47 @@ class Packet(Sized, Hashable):
 
 
 class CreatorPacket(Packet):
-    def __init__(self, client: str = "", set_id: bytes = b'', **kwargs):
-        if "header" in kwargs:
-            super().__init__(**kwargs)
-            return
+    def __init__(self, client: str = "", set_id: bytes = b''):
         data = client.encode()
         padding = 4 - len(data) % 4
         data += b'\0' * padding
         super().__init__(packet_type="Creator", set_id=set_id, data=data)
 
+    def __repr__(self):
+        return "<Par2 Creator Packet: \"{}\" ({} bytes)>".format(self.client, self.__len__())
+
+    def __str__(self):
+        return self.client
+
     @classmethod
     def from_bytes(cls, data: Union[bytes, memoryview]) -> "CreatorPacket":
-        out = super().from_bytes(data)
-        if out.header.type != "Creator":
-            raise ValueError("Decoded Packet is actually a {} Packet, not a Creator Packet".format(out.header.type))
-        return out
+        # Use parent for parsing
+        parent = super().from_bytes(data)
+        if parent.header.type != "Creator":
+            raise ValueError("Packet is actually a {} Packet, not a Creator Packet".format(parent.header.type))
+        # Convert to the real class by copying
+        packet = cls()
+        packet._header = parent._header
+        packet._data_after_header = parent._data_after_header
+        return packet
 
     @property
     def client(self) -> str:
         """ Get the client encoded by the packet """
         return bytes(self._data_after_header).rstrip(b'\0').decode()
+
+
+def packet_factory(data: Union[bytes, memoryview]):
+    """
+    Convert data into a par 2 packet
+    :param data: The data to convert
+    :return: A Packet or child of a packet
+    """
+    # Accept the overhead of decoding the header twice. It's not worth the trouble.
+    header = PacketHeader.from_bytes(data)
+    if header.type == "Creator":
+        return CreatorPacket.from_bytes(data)
+    return Packet.from_bytes(data)
 
 
 def get_packets(data: Union[bytes, memoryview], packet_type: Optional[str] = None) -> Iterator[Packet]:
@@ -238,7 +261,7 @@ def get_packets(data: Union[bytes, memoryview], packet_type: Optional[str] = Non
     data = memoryview(data)
     packet_search = re.compile(PacketHeader._magic_expected)
     for match in packet_search.finditer(data):
-        packet = Packet.from_bytes(data[match.start():])
+        packet = packet_factory(data[match.start():])
         if packet_type is None or packet.header.type == packet_type:
             yield packet
 
