@@ -4,30 +4,53 @@ __author__ = "Arthur Moore <Arthur.Moore.git@cd-net.net>"
 __copyright__ = "Copyright (C) 2021 Arthur Moore"
 __license__ = "MIT"
 
+from collections.abc import Sequence
 from typing import Union, Tuple, Iterator
 
 from fpdf.fpdf import get_page_format
 
-from qr_pdf.fpdf.helpers import convert_unit
+from .helpers import convert_unit
 
 
-def frange(start: float, stop: float, step: float, include_stop: bool = False) -> Iterator[float]:
+class frange(Sequence):
     """
     Floating point range function, with the option of including the stop number if exactly reached
-    :param start: Starting Number
-    :param stop: Maximum number
-    :param step: Number to increment by
-    :param include_stop: If the stop is reached exactly, if it will be included or not
     """
-    current = start
-    if include_stop:
-        while current <= stop:
-            yield current
-            current += step
-        return
-    while current < stop:
-        yield current
-        current += step
+
+    def __init__(self, start: float, stop: float, step: float = 1, include_stop: bool = False):
+        """
+        :param start: Starting Number
+        :param stop: Maximum number
+        :param step: Number to increment by
+        :param include_stop: If the stop is reached exactly, if it will be included or not
+        """
+        if step == 0:
+            raise ValueError("step must not be zero")
+        self.start, self.stop, self.step = start, stop, step
+        self.include_stop = include_stop
+        pass
+
+    def __getitem__(self, key: Union[int, slice]) -> Union[float, "frange"]:
+        if isinstance(key, slice):
+            return frange(self[slice.start], self[slice.stop], self.step)
+        if key >= self.__len__():
+            raise IndexError("index out of range")
+        return self.step * key + self.start
+
+    def __len__(self) -> int:
+        out, remainder = divmod(self.stop - self.start, self.step)
+        if remainder != 0:
+            out += 1
+        elif self.include_stop:
+            out += 1
+        return int(max(out, 0))
+
+    def __str__(self):
+        if self.step == 1 and not self.include_stop:
+            return f"frange({self.start}, {self.stop})"
+        elif not self.include_stop:
+            return f"frange({self.start}, {self.stop}, {self.step})"
+        return f"frange({self.start}, {self.stop}, {self.step}, {self.include_stop})"
 
 
 def generate_grid_start_points(cell_size: Union[float, Tuple[float, float]],
