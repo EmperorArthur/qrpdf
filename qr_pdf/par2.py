@@ -162,11 +162,11 @@ class Packet(Sized, Hashable):
 
     def _generate_hash(self) -> bytes:
         """ Generate the hash that should be in the header """
-        return md5(self.as_bytes()[32:]).digest()
+        return md5(self.__bytes__()[32:]).digest()
 
-    def as_bytes(self) -> bytes:
+    def __bytes__(self) -> bytes:
         """
-        Get the packet in the simplest way possible
+        Get the packet as raw data
         WARNING: Even if the packet was built from a memoryview, this still returns bytes.
         """
         return self.header.as_bytes() + self._data_after_header
@@ -299,11 +299,11 @@ def _get_optimized_main(data: Union[bytearray, bytes, memoryview]) -> Tuple[byte
         date = datetime.now().date()
         creator_packets.append(CreatorPacket("qr-pdf on {}".format(date), main_packets[0].header.set_id))
 
-    out = main_packets[0].as_bytes()
+    out = bytes(main_packets[0])
     creator_out = None
     bin_bytes_remaining = _get_unused_block_size(len(main_packets[0]))
     if bin_bytes_remaining >= len(creator_packets[0]):
-        out += creator_packets[0].as_bytes()
+        out += bytes(creator_packets[0])
         bin_bytes_remaining -= len(creator_packets[0])
     else:
         creator_out = creator_packets[0]
@@ -342,7 +342,7 @@ def _get_optimized_file_data(data: Union[bytearray, bytes, memoryview]) -> bytes
     file_packets.sort(key=len, reverse=True)
     while len(file_packets):
         packet = file_packets.pop(0)  # Handle at least one packet per iteration
-        out += packet.as_bytes()
+        out += bytes(packet)
         bin_bytes_remaining = _get_unused_block_size(len(packet))
         if bin_bytes_remaining <= PACKET_HEADER_SIZE:
             # Optimization. Nothing will fit, so close the bin
@@ -352,7 +352,7 @@ def _get_optimized_file_data(data: Union[bytearray, bytes, memoryview]) -> bytes
         for i, packet in enumerate(file_packets):
             # Only have to do this once to fill the bin
             if len(packet) <= bin_bytes_remaining:
-                out += packet.as_bytes()
+                out += bytes(packet)
                 bin_bytes_remaining -= len(packet)
                 to_drop.append(i)
         for i in sorted(to_drop, reverse=True):
@@ -410,7 +410,7 @@ def optimize_for_tar(in_file: Union[str, Path, bytearray, bytes], out: Union[str
     recovery_written = 0
     for packet in get_packets(in_file, "RecoveryBlock"):
         recovery_count += 1
-        recovery_written += out.write(packet.as_bytes())
+        recovery_written += out.write(bytes(packet))
         # Never try to stuff recovery packets, and instead pad the current block
         bin_bytes_remaining = _get_unused_block_size(len(packet))
         recovery_written += out.write(b'\0' * bin_bytes_remaining)
