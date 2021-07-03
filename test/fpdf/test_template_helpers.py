@@ -2,7 +2,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from qr_pdf.fpdf.template_helpers import generate_grid_start_points, frange
+from qrpdf.fpdf.template_helpers import generate_grid_start_points, frange
 
 
 def test_frange_zero():

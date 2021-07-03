@@ -1,4 +1,4 @@
-# QR PDF
+# QRPDF
 Store your files on paper, in a manner which is extremely recoverable.
 
 Every file is broken into small, easy to read QR codes then saved to PDF pages.
@@ -6,7 +6,7 @@ Every file is broken into small, easy to read QR codes then saved to PDF pages.
 # Installation
 
 Primary installation is via pip.
-`pip install qr-pdf`, however par2cmdline must be installed.
+`pip install qrpdf`, however par2cmdline must be installed.
 
 You can find the latest version [here](https://github.com/Parchive/par2cmdline/releases).
 
